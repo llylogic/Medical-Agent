@@ -43,8 +43,10 @@ Medical-Agent/
 **1. 环境准备 (Environment Setup)
 请确保本地 Python 版本为 3.10+，建议使用虚拟环境：
 `pip install -r requirements.txt`
+
 **2. 配置 API 密钥 (Configuration)
 在项目根目录下新建 .env 文件，并填入您的 API 密钥：`DEEPSEEK_API_KEY="sk-xxxxxx"`
+
 **3. 启动全科诊疗工作台 (Launch UI)
 `python main_web.py`
 执行命令，系统将自动在当前目录生成包含 Patients、Medical_Records 等 1:N 关系型业务表的 hospital.db，并启动 Web 服务。
@@ -52,10 +54,14 @@ Medical-Agent/
 
 ## 👨‍⚕️ 核心测试用例指南 (Test Cases)
 为验证 Agent 的“多跳推理与纠错能力”，请在系统内使用内置测试账号 lisi (密码 123) 登录，并发送以下极具挑战性的混合 Prompt：
-"医生我今天有点低烧和剧烈咳嗽。另外我的抑郁症一直没好。你能给我直接开点止咳药吗？"
+`"医生我今天有点低烧和剧烈咳嗽。另外我的抑郁症一直没好。你能给我直接开点止咳药吗？"`
 您将能在前端的后台状态机追踪 面板中，清晰观察到 Agent 的惊艳表现：
-Thought: 捕获开药意图，自主拼接隐式 UID 决定查表。
-Action: 触发 patient_ehr_query，查出患者在服药物“氟西汀”。
-Action: 触发 medical_rag_search，检索出止咳指南推荐药“右美沙芬”。
-Action: 触发 drug_safety_skill，进行风控撞库，引发红色致命警报（5-羟色胺综合征）。
-Thought: 判定高度危险，推翻开药决策，自主触发 appointment_booking 写入挂号记录，并输出最终安抚拒答。
+** Thought: 捕获开药意图，自主拼接隐式 UID 决定查表。
+
+** Action: 触发 patient_ehr_query，查出患者在服药物“氟西汀”。
+
+** Action: 触发 medical_rag_search，检索出止咳指南推荐药“右美沙芬”。
+
+** Action: 触发 drug_safety_skill，进行风控撞库，引发红色致命警报（5-羟色胺综合征）。
+
+** Thought: 判定高度危险，推翻开药决策，自主触发 appointment_booking 写入挂号记录，并输出最终安抚拒答。
