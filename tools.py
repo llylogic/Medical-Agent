@@ -8,6 +8,8 @@ from langchain_core.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+import requests
+from langchain_community.tools.pubmed.tool import PubmedQueryRun
 
 # 1. 跨目录依赖注入保护
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -73,21 +75,45 @@ def medical_rag_search(query: str) -> str:
 @tool
 def drug_safety_skill(drug_a: str, drug_b: str) -> str:
     """
-    【风控 Skill】：模拟接入外部医药配伍禁忌知识图谱 (Knowledge Graph)。
-    在开具任何新药前，必须调用此插件检查与患者正在服用的药物是否冲突。
+    【真实风控 Skill】：接入美国国立卫生研究院 (NIH) RxNorm 真实医药数据库。
+    在开具任何新药前，必须调用此插件检查新药与患者正在服用的药物是否冲突。
+    支持输入中英文药物通用名（如：氟西汀、阿司匹林、Fluoxetine）。
     """
-    # 模拟外部微服务 API 的返回格式
-    danger_pairs = {
-        frozenset(["右美沙芬", "氟西汀"]): "【极度高危】氟西汀与右美沙芬同服极易引发致命的‘5-羟色胺综合征’，严禁开具！",
-        frozenset(["阿司匹林", "布洛芬"]): "【高危】增加胃肠道出血及心血管不良事件风险，避免联合使用。",
-        frozenset(["头孢克肟", "酒精"]): "【致命】双硫仑样反应（面部潮红、严重可致休克），用药期间严禁饮酒！",
-        frozenset(["西柚汁", "阿托伐他汀"]): "【中危】西柚汁抑制CYP3A4酶，导致他汀类血药浓度升高，增加横纹肌溶解风险。",
-        frozenset(["左旋多巴", "维生素B6"]): "【药效降低】维生素B6加速左旋多巴在外周的脱羧代谢，导致进入中枢的药量减少。"
-    }
-    query_pair = frozenset([drug_a, drug_b])
-    if query_pair in danger_pairs:
-        return f"🚨 风控系统拦截：{danger_pairs[query_pair]}"
-    return "✅ 【风控审核通过】未在知识图谱中发现明确的药物相互作用。"
+    try:
+        # 第一步：调用 NIH API，将药物自然语言名称转换为标准的 RxCUI 国际代码
+        def get_rxcui(drug_name):
+            url = f"https://rxnav.nlm.nih.gov/REST/rxcui.json?name={drug_name}"
+            # NIH 限制频率，加上标准请求头
+            headers = {"User-Agent": "Mozilla/5.0 Medical-Agent-POC"}
+            response = requests.get(url, headers=headers, timeout=5).json()
+            if "idGroup" in response and "rxnormId" in response["idGroup"]:
+                return response["idGroup"]["rxnormId"][0]
+            return None
+
+        cui_a = get_rxcui(drug_a)
+        cui_b = get_rxcui(drug_b)
+        
+        if not cui_a or not cui_b:
+            return f"⚠️ 【系统提示】未能在 NIH 国际权威药物数据库中识别到 '{drug_a}' 或 '{drug_b}' 的标准编号。出于安全考虑，请建议患者遵线下医嘱。"
+
+        # 第二步：调用 NIH 药物相互作用 (Interaction) 真实 API
+        interaction_url = f"https://rxnav.nlm.nih.gov/REST/interaction/list.json?rxcuis={cui_a}+{cui_b}"
+        interaction_res = requests.get(interaction_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5).json()
+
+        # 第三步：解析真实的国家级医学反馈数据
+        if "fullInteractionTypeGroup" in interaction_res:
+            # 解析极其复杂的嵌套 JSON，提取真实的医学警告
+            try:
+                description = interaction_res["fullInteractionTypeGroup"][0]["fullInteractionType"][0]["interactionPair"][0]["description"]
+                return f"🚨 【NIH 数据库真实红色预警】检测到严重配伍禁忌：\n- 权威医学机制：{description}\n- 处置建议：严禁开具！必须立即要求患者面诊换药！"
+            except:
+                return "🚨 【NIH 数据库预警】检测到潜在药物相互作用，请谨慎开具。"
+        
+        return "✅ 【NIH 权威审核通过】国际数据库未查及这两种药物存在明确配伍禁忌，可正常处方。"
+        
+    except Exception as e:
+        return f"风控系统底层网络调用异常: {str(e)}。出于医疗绝对安全考虑，请暂缓开药并转诊线下！"
+    
 @tool
 def appointment_booking(user_id: str, department: str, date: str) -> str:
     """【写操作工具】：为患者写入挂号记录。"""
@@ -101,27 +127,27 @@ def appointment_booking(user_id: str, department: str, date: str) -> str:
     except Exception as e:
         return f"挂号失败: {str(e)}"
 
+
+# =====================================================================
+# 🌟 真正的即插即用生态 Skill：社区维护的 PubMed 国际医学文献检索
+# =====================================================================
+pubmed_skill = PubmedQueryRun()
+
+# 为了让大模型知道怎么用它，我们可以给它套一层极简的壳，或者直接放进列表里。
+# 这里我们给它套个壳，强化一下中文说明书（因为官方自带的说明书是纯英文的，怕大模型犯迷糊）
 @tool
-def web_news_search(query: str) -> str:
-    """【外部搜索工具】：突破本地知识库时间限制，获取最新医保政策、突发疫情等资讯。"""
+def international_medical_literature_skill(query: str) -> str:
+    """
+    【国际顶级医学文献 Skill】：这是一个由开源社区封装好的 PubMed 检索插件。
+    当本地知识库无法解决疑难杂症，或者用户明确要求查阅“国际最新医学研究、医学前沿论文”时，调用此插件。
+    输入参数 query 必须是英文医学关键词（如：Fanconi syndrome treatment）。
+    """
     try:
-        raw_result = web_search_tool.invoke(query)
-        # 👇👇👇 核心修改：返回前强制过一遍压缩器！
-        clean_result = compress_observation(raw_result)
-        return f"【互联网检索结果(已高度压缩提炼)】: {clean_result}"
+        # 直接调用别人写好的神器！
+        return pubmed_skill.invoke(query)
     except Exception as e:
-       # 面试高光：网络熔断降级机制，转用原生 Python 直接爬取国内必应！
-        print(f"⚠️ 节点 1 超时 ({e})，正在自动切换至国内容错节点...")
-        try:
-            url = 'https://cn.bing.com/search?q=' + urllib.parse.quote(query)
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-            html = urllib.request.urlopen(req, timeout=5).read().decode('utf-8')
-            # 极简正则提取网页摘要
-            snippets = re.findall(r'<p class="b_parring">(.*?)</p>', html) or re.findall(r'<div class="b_caption"><p>(.*?)</p></div>', html)
-            text = re.sub(r'<[^>]+>', '', " ".join(snippets))
-            return f"【国内节点检索结果】: {text[:1000]}" if text else "全网均未检索到相关资讯。"
-        except Exception as inner_e:
-            return f"双节点联网均失败，请提示用户检查网络环境。"
+        return f"PubMed 插件调用失败: {str(e)}"
+
 
 # 暴漏聚合后的工具列表
-tools_list = [patient_ehr_query, medical_rag_search, drug_safety_skill, appointment_booking, web_news_search]
+tools_list = [patient_ehr_query, medical_rag_search, drug_safety_skill, appointment_booking,international_medical_literature_skill]
