@@ -143,11 +143,13 @@ def international_medical_literature_skill(query: str) -> str:
     输入参数 query 必须是英文医学关键词（如：Fanconi syndrome treatment）。
     """
     try:
-        # 直接调用别人写好的神器！
-        return pubmed_skill.invoke(query)
+        #旁路模型压缩
+        raw_result = pubmed_skill.invoke(query)
+        clean_result = compress_observation(raw_result)
+        return f"【PubMed 国际前沿文献(已压缩提炼)】: {clean_result}"
     except Exception as e:
         return f"PubMed 插件调用失败: {str(e)}"
 
 
 # 暴漏聚合后的工具列表
-tools_list = [patient_ehr_query, medical_rag_search, drug_safety_skill, appointment_booking,international_medical_literature_skill]
+tools_list = [patient_ehr_query, medical_rag_search, drug_safety_skill, appointment_booking, international_medical_literature_skill]
