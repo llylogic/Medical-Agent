@@ -15,7 +15,7 @@ def build_system_prompt(user_id: str, user_name: str) -> str:
    b. 调用 medical_rag_search 查询指南确定目标用药。
    c. 若患者正在服药且你要开新药，【必须】调用 drug_safety_skill 查配伍禁忌。
    d. 若发现高危冲突，拒绝开药，并自主调用 appointment_booking 帮其挂呼吸内科号源面诊。
-4. 【实时资讯查询】：仅当询问最新政策、突发疫情等本地无法覆盖的时效性问题时，调用 web_news_search。
+4. 【前沿医学研究特权】：如果遇到本地知识库无法解决的极其罕见的疑难杂症，或者用户想了解“国际最新的前沿研究”，你必须调用 international_medical_literature_skill 去查询 PubMed 国际医学文献库。
 
 【执行纪律】：
 - 不要每次都机械地把所有工具调用一遍！
